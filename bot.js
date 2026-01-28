@@ -32,7 +32,6 @@ const MAIN_SCHEDULE_MODE = (process.env.MAIN_SCHEDULE_MODE || "hourly").toLowerC
 // MAIN_POST_TIME используется только в режиме daily (один раз в день)
 const MAIN_POST_TIME = process.env.MAIN_POST_TIME || "12:00";
 // ✅ Режим "hours": постить в конкретные часы (в TIMEZONE), например: "8,12,18"
-// Минуты задаются отдельно (по умолчанию 00). Это сделано так, чтобы ты мог(ла) легко менять расписание в .env.
 const MAIN_POST_HOURS = process.env.MAIN_POST_HOURS || "8,12,18";
 const MAIN_POST_MINUTE = Number(process.env.MAIN_POST_MINUTE ?? 0);
 
@@ -118,10 +117,8 @@ function getHourInTZ(tz) {
   return Number(hourStr);
 }
 
-
 function getTimePartsInTZ(tz) {
   // Возвращает дату/время "как в таймзоне", без сторонних библиотек.
-  // Полезно для планировщиков: сравниваем часы/минуты именно в TIMEZONE.
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
     year: "numeric",
@@ -140,14 +137,11 @@ function getTimePartsInTZ(tz) {
   const hour = Number(get("hour", "00"));
   const minute = Number(get("minute", "00"));
 
-  // Ключ даты в таймзоне (YYYY-MM-DD)
   const dateKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
   return { year, month, day, hour, minute, dateKey };
 }
 
 // Активные часы: 07:00–23:00 (по TIMEZONE)
-// Если окно "через полночь" — тоже поддерживается (редко)
 function isActiveHours() {
   const hour = getHourInTZ(TIMEZONE);
 
@@ -251,7 +245,7 @@ function jaccard(setA, setB) {
 function similarity(a, b) {
   const wordScore = jaccard(toWordSet(a), toWordSet(b));
   const bigramScore = jaccard(toBigramSet(a), toBigramSet(b));
-  return (wordScore * 0.6 + bigramScore * 0.4);
+  return wordScore * 0.6 + bigramScore * 0.4;
 }
 
 // ===== Images =====
@@ -341,7 +335,7 @@ CTA = "${cta}" (добавь в конце ДОСЛОВНО)
 
 Формат вывода (СТРОГО):
 1) RUBRIC: clarity|practice|reflection
-2) TITLE: короткий заголовок без тегов
+2) TITLE: короткий заголовок без тегов (СТРОГО: начинается с 1 эмодзи и НЕ содержит других эмодзи)
 
 Далее текст caption на русском.
 
@@ -352,7 +346,7 @@ CTA = "${cta}" (добавь в конце ДОСЛОВНО)
 — НЕ Markdown
 
 Структура caption:
-1) <b>Заголовок</b> (1 эмодзи)
+1) <b>Заголовок</b> (ровно 1 эмодзи в начале)
 2) 2–4 предложения: конкретный инсайт + пример ситуации БЕЗ имён (никаких «Ирина/Марина»). Пиши во 2-м лице («ты») или обезличенно.
 3) Блок:
 ✨ Мини-практика:
@@ -436,8 +430,50 @@ function stripHtml(text) {
     .trim();
 }
 
+/**
+ * ===== Emoji utils (графемы) =====
+ * Это чинит случаи, когда эмодзи составные (флаг, семья, вариации) и
+ * обычный подсчёт /[\p{Extended_Pictographic}]/ считает их как 2+.
+ */
+const EMOJI_RE = /[\p{Extended_Pictographic}]/u;
+
+function emojiGraphemes(text) {
+  const s = String(text || "").trim();
+  if (!s) return [];
+  const seg = new Intl.Segmenter("en", { granularity: "grapheme" });
+  const out = [];
+  for (const { segment } of seg.segment(s)) {
+    if (EMOJI_RE.test(segment)) out.push(segment);
+  }
+  return out;
+}
+
 function startsWithEmoji(text) {
-  return /^[\p{Extended_Pictographic}]/u.test(String(text || "").trim());
+  const s = String(text || "").trim();
+  if (!s) return false;
+  const seg = new Intl.Segmenter("en", { granularity: "grapheme" });
+  const it = seg.segment(s)[Symbol.iterator]();
+  const first = it.next().value?.segment;
+  return first ? EMOJI_RE.test(first) : false;
+}
+
+function countEmojis(text) {
+  return emojiGraphemes(text).length;
+}
+
+// Автопочинка заголовка под ваши правила: "1 эмодзи в начале + текст"
+function fixTitle(rawTitle) {
+  const clean = stripHtml(rawTitle || "").replace(/\s+/g, " ").trim();
+
+  // базовый текст без эмодзи
+  const baseText =
+    clean.replace(/[\p{Extended_Pictographic}]/gu, "").replace(/\s+/g, " ").trim() || "Небольшая пауза";
+
+  // берём первый эмодзи-графем, если есть, иначе ставим дефолт
+  const emojis = emojiGraphemes(clean);
+  const emoji = emojis[0] || "✨";
+
+  return `${emoji} ${baseText}`.trim();
 }
 
 function hasValidHashtags(line) {
@@ -490,7 +526,10 @@ async function generateHashtagLine({ rubric, title }) {
         timeout: 30000,
       }
     );
-    const line = String(res.data?.response?.[0]?.message?.content || "").trim().split(/\r?\n/)[0] || "";
+    const line =
+      String(res.data?.response?.[0]?.message?.content || "")
+        .trim()
+        .split(/\r?\n/)[0] || "";
     return hasValidHashtags(line) ? line : null;
   } catch (e) {
     console.error("Ошибка генерации хэштегов:", e.response?.data || e.message);
@@ -513,10 +552,6 @@ function buildFallbackCaption({ rubric, cta }) {
   const hashtagLine = buildHashtagsFallback(rubric);
   const body = rebuildBodyWithTail(template.body, cta, hashtagLine);
   return buildCaptionHTML(template.title, body);
-}
-
-function countEmojis(text) {
-  return (String(text || "").match(/[\p{Extended_Pictographic}]/gu) || []).length;
 }
 
 function validateCaptionParts({ rubric, title, body, cta, expectedRubric }) {
@@ -570,8 +605,7 @@ function validateCaptionParts({ rubric, title, body, cta, expectedRubric }) {
 
   if (errors.length === 0) return { ok: true, errors };
 
-  const softLengthOk =
-    combined.length >= CAPTION_MIN_SOFT && combined.length <= CAPTION_MAX_SOFT;
+  const softLengthOk = combined.length >= CAPTION_MIN_SOFT && combined.length <= CAPTION_MAX_SOFT;
   if (errors.length === 1 && errors[0] === "bad_length" && softLengthOk) {
     return { ok: true, errors, warnings: ["soft_length"] };
   }
@@ -637,32 +671,36 @@ async function post({ reason = "scheduled" } = {}) {
 
     const parsed = parseModelOutput(raw);
     const rubric = parsed.rubric || rubricWanted;
-    let body = parsed.body;
 
     if (rubric === lastRubric) continue;
 
+    const fixedTitle = fixTitle(parsed.title);
+    let body = parsed.body;
+
     let validation = validateCaptionParts({
       rubric,
-      title: parsed.title,
+      title: fixedTitle,
       body,
       cta,
       expectedRubric: rubricWanted,
     });
+
     if (!validation.ok) {
       const reasons = validation.errors || [];
       if (reasons.includes("bad_hashtags") || reasons.includes("cta_missing") || reasons.includes("cta_position")) {
         const hashtagLine =
-          (await generateHashtagLine({ rubric, title: parsed.title })) || buildHashtagsFallback(rubric);
+          (await generateHashtagLine({ rubric, title: fixedTitle })) || buildHashtagsFallback(rubric);
         body = rebuildBodyWithTail(body, cta, hashtagLine);
         validation = validateCaptionParts({
           rubric,
-          title: parsed.title,
+          title: fixedTitle,
           body,
           cta,
           expectedRubric: rubricWanted,
         });
       }
     }
+
     if (!validation.ok) {
       recordValidationFailure(validation.errors || []);
       logValidationResult(validation);
@@ -672,7 +710,7 @@ async function post({ reason = "scheduled" } = {}) {
       console.log(`⚠️ Валидация с предупреждением: ${validation.warnings.join(",")}`);
     }
 
-    const caption = buildCaptionHTML(parsed.title || "Небольшая пауза", body);
+    const caption = buildCaptionHTML(fixedTitle, body);
     if (!caption || caption.length < 220) continue;
     if (memory.some((m) => similarity(m.text, caption) > SIM_THRESHOLD)) continue;
 
@@ -703,12 +741,7 @@ async function post({ reason = "scheduled" } = {}) {
         filename: path.basename(imagePath),
         contentType: contentTypeFromPath(imagePath),
       };
-      await bot.sendPhoto(
-        channelId,
-        stream2,
-        { caption: caption.replace(/<\/?b>/g, "") },
-        fileOptions2
-      );
+      await bot.sendPhoto(channelId, stream2, { caption: caption.replace(/<\/?b>/g, "") }, fileOptions2);
     }
 
     memory.push({ ts: new Date().toISOString(), rubric, cta, text: caption });
@@ -724,6 +757,7 @@ async function post({ reason = "scheduled" } = {}) {
     rubric: fallbackRubric,
     cta: fallbackCta,
   });
+
   console.log("⚠️ Публикую запасной пост");
   await bot.sendMessage(channelId, fallbackCaption, { parse_mode: "HTML", disable_web_page_preview: true });
   memory.push({ ts: new Date().toISOString(), rubric: fallbackRubric, cta: fallbackCta, text: fallbackCaption });
@@ -734,9 +768,7 @@ async function post({ reason = "scheduled" } = {}) {
 function scheduleHourly() {
   const now = new Date();
   const msToNextHour =
-    (60 - now.getMinutes()) * 60 * 1000 -
-    now.getSeconds() * 1000 -
-    now.getMilliseconds();
+    (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
 
   console.log(`⏱ До следующего часа: ${Math.max(0, Math.round(msToNextHour / 1000))} сек`);
 
@@ -745,25 +777,19 @@ function scheduleHourly() {
     setInterval(() => post({ reason: "hourly" }), 60 * 60 * 1000);
   }, msToNextHour);
 }
+
 // ===== Scheduler (specific hours) =====
 function parseHoursList(value, fallback = "8,12,18") {
-  // Принимает строку вида "8,12,18" или "08 12 18" и возвращает массив часов [8,12,18]
   const raw = String(value || fallback)
     .split(/[,;\s]+/)
     .map((x) => x.trim())
     .filter(Boolean);
 
-  const hours = raw
-    .map((x) => Number(x))
-    .filter((n) => Number.isFinite(n) && n >= 0 && n <= 23);
-
-  // Уникальные + сортировка
+  const hours = raw.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n >= 0 && n <= 23);
   return [...new Set(hours)].sort((a, b) => a - b);
 }
 
 function scheduleAtHours({ hours, minute }, fn, label = "hours") {
-  // Лёгкий "cron" без библиотек:
-  // раз в 20 секунд проверяем текущее время в TIMEZONE и запускаем fn только один раз в минуту.
   const hoursList = parseHoursList(hours);
   const safeMinute = Math.min(59, Math.max(0, Number(minute) || 0));
 
@@ -778,7 +804,6 @@ function scheduleAtHours({ hours, minute }, fn, label = "hours") {
     if (!hoursList.includes(t.hour)) return;
     if (t.minute !== safeMinute) return;
 
-    // Один запуск на конкретную минуту
     const key = `${t.dateKey}-${t.hour}-${t.minute}`;
     if (key === lastRunKey) return;
 
@@ -787,11 +812,8 @@ function scheduleAtHours({ hours, minute }, fn, label = "hours") {
   }, 20 * 1000);
 }
 
-
 // ===== Start =====
-console.log(
-  `🚀 Бот запущен. Активные часы ${ACTIVE_HOURS_START}:00–${ACTIVE_HOURS_END}:00 (${TIMEZONE}). MAIN=${MAIN_SCHEDULE_MODE}.`
-);
+console.log(`🚀 Бот запущен. Активные часы ${ACTIVE_HOURS_START}:00–${ACTIVE_HOURS_END}:00 (${TIMEZONE}). MAIN=${MAIN_SCHEDULE_MODE}.`);
 
 logValidationSummary();
 setInterval(logValidationSummary, VALIDATION_REPORT_INTERVAL);
@@ -805,11 +827,7 @@ if (SEND_TEST_ON_START) {
 if (MAIN_SCHEDULE_MODE === "hourly") {
   scheduleHourly();
 } else if (MAIN_SCHEDULE_MODE === "hours") {
-  scheduleAtHours(
-    { hours: MAIN_POST_HOURS, minute: MAIN_POST_MINUTE },
-    () => post({ reason: "hours" }),
-    "main-bot"
-  );
+  scheduleAtHours({ hours: MAIN_POST_HOURS, minute: MAIN_POST_MINUTE }, () => post({ reason: "hours" }), "main-bot");
 } else if (MAIN_SCHEDULE_MODE === "daily") {
   scheduleDailyAt(parseHHMM(MAIN_POST_TIME, "12:00"), () => post({ reason: "daily" }), "main-bot");
 } else if (MAIN_SCHEDULE_MODE === "off") {
