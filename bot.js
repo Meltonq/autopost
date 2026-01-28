@@ -609,48 +609,6 @@ function logValidationSummary() {
   console.log(`📊 Валидация: всего=${stats.total} топ=${top || "нет"}`);
 }
 
-function stripHtml(text) {
-  return String(text || "")
-    .replace(/<\/?b>/gi, "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/[<>]/g, "")
-    .trim();
-}
-
-function hasValidHashtags(line) {
-  const trimmed = (line || "").trim();
-  if (!trimmed) return false;
-  const tags = trimmed.split(/\s+/).filter(Boolean);
-  return (
-    tags.length >= 2 &&
-    tags.length <= 4 &&
-    tags.every((tag) => /^#[\p{L}\p{N}_-]+$/u.test(tag))
-  );
-}
-
-function validateCaptionParts({ title, body, cta }) {
-  const cleanTitle = stripHtml(title);
-  const cleanBody = stripHtml(body);
-
-  if (!cleanTitle || cleanTitle.length < 3) return false;
-  if (!cleanBody || cleanBody.length < 200) return false;
-  if (!cleanBody.includes("✨ Мини-практика:")) return false;
-
-  const lines = cleanBody.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const stepsCount = lines.filter((line) => line.startsWith("—")).length;
-  if (stepsCount < 2) return false;
-
-  if (!lines.includes(cta)) return false;
-
-  const hashtagLine = lines.at(-1);
-  if (!hasValidHashtags(hashtagLine)) return false;
-
-  const combined = stripHtml(buildCaptionHTML(cleanTitle, cleanBody));
-  if (combined.length < CAPTION_MIN || combined.length > CAPTION_MAX) return false;
-
-  return true;
-}
-
 // ===== Posting =====
 async function post({ reason = "scheduled" } = {}) {
   if (!isActiveHours()) {
