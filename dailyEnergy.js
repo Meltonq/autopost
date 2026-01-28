@@ -5,6 +5,10 @@ import path from "path";
 // Если хочешь, можешь включить фикс и здесь (лучше — в entrypoint до импорта бота):
 // process.env.NTBA_FIX_350 = "1";
 
+const ENERGY_MIN = 350;
+const ENERGY_MAX = 700;
+const ENERGY_MAX_TRIES = 3;
+
 function getHourInTZ(tz) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
@@ -65,6 +69,29 @@ function mimeByExt(filePath) {
   if (ext === ".webp") return "image/webp";
   // fallback
   return "application/octet-stream";
+}
+
+function normalizeText(text) {
+  return String(text || "").replace(/\r/g, "").trim();
+}
+
+function validateEnergyCaption(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+
+  const length = normalized.length;
+  if (length < ENERGY_MIN || length > ENERGY_MAX) return false;
+
+  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 6) return false;
+
+  const hasEnergyLine = lines.some((line) => line.toLowerCase().startsWith("энергия дня:"));
+  if (!hasEnergyLine) return false;
+
+  const hasRecommendation = lines.some((line) => line.startsWith("—"));
+  if (!hasRecommendation) return false;
+
+  return true;
 }
 
 async function generateEnergyCaption({ timezone, genApiKey }) {
@@ -137,7 +164,17 @@ async function postDailyEnergy({
   }
 
   try {
-    const caption = await generateEnergyCaption({ timezone, genApiKey });
+    let caption = "";
+    for (let i = 0; i < ENERGY_MAX_TRIES; i++) {
+      caption = await generateEnergyCaption({ timezone, genApiKey });
+      if (validateEnergyCaption(caption)) break;
+      caption = "";
+      await new Promise((resolve) => setTimeout(resolve, 800 + i * 400));
+    }
+    if (!caption) {
+      console.log("🌞 Энергия дня: не удалось сгенерировать корректный текст");
+      return;
+    }
     const imagePath = pickEnergyImage(imagesDir);
 
     const stream = fs.createReadStream(imagePath);

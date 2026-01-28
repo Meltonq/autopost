@@ -56,6 +56,8 @@ const USED_IMAGES_FILE = "./images_used.json";
 const POSTS_MEMORY_FILE = "./posts_memory.json";
 
 const CAPTION_LIMIT = 900;
+const CAPTION_MIN = 500;
+const CAPTION_MAX = 900;
 const MAX_TRIES = 4;
 const SIM_THRESHOLD = 0.45;
 
@@ -318,6 +320,48 @@ function buildCaptionHTML(title, body) {
   return clampCaption(`<b>${cleanTitle}</b>\n\n${cleanBody}`);
 }
 
+function stripHtml(text) {
+  return String(text || "")
+    .replace(/<\/?b>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/[<>]/g, "")
+    .trim();
+}
+
+function hasValidHashtags(line) {
+  const trimmed = (line || "").trim();
+  if (!trimmed) return false;
+  const tags = trimmed.split(/\s+/).filter(Boolean);
+  return (
+    tags.length >= 2 &&
+    tags.length <= 4 &&
+    tags.every((tag) => /^#[\p{L}\p{N}_-]+$/u.test(tag))
+  );
+}
+
+function validateCaptionParts({ title, body, cta }) {
+  const cleanTitle = stripHtml(title);
+  const cleanBody = stripHtml(body);
+
+  if (!cleanTitle || cleanTitle.length < 3) return false;
+  if (!cleanBody || cleanBody.length < 200) return false;
+  if (!cleanBody.includes("✨ Мини-практика:")) return false;
+
+  const lines = cleanBody.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const stepsCount = lines.filter((line) => line.startsWith("—")).length;
+  if (stepsCount < 2) return false;
+
+  if (!lines.includes(cta)) return false;
+
+  const hashtagLine = lines.at(-1);
+  if (!hasValidHashtags(hashtagLine)) return false;
+
+  const combined = stripHtml(buildCaptionHTML(cleanTitle, cleanBody));
+  if (combined.length < CAPTION_MIN || combined.length > CAPTION_MAX) return false;
+
+  return true;
+}
+
 // ===== Posting =====
 async function post({ reason = "scheduled" } = {}) {
   if (!isActiveHours()) {
@@ -338,7 +382,7 @@ async function post({ reason = "scheduled" } = {}) {
       raw = await generateCaption({ rubric: rubricWanted, tone, cta });
     } catch (e) {
       console.error("Ошибка генерации:", e.response?.data || e.message);
-      await sleep(800);
+      await sleep(1000 + i * 600);
       continue;
     }
 
@@ -346,6 +390,8 @@ async function post({ reason = "scheduled" } = {}) {
     const rubric = parsed.rubric || rubricWanted;
 
     if (rubric === lastRubric) continue;
+
+    if (!validateCaptionParts({ title: parsed.title, body: parsed.body, cta })) continue;
 
     const caption = buildCaptionHTML(parsed.title || "Небольшая пауза", parsed.body);
     if (!caption || caption.length < 220) continue;
