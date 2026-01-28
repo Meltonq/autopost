@@ -5,6 +5,11 @@ import path from "path";
 // Если хочешь, можешь включить фикс и здесь (лучше — в entrypoint до импорта бота):
 // process.env.NTBA_FIX_350 = "1";
 
+const ENERGY_MIN = 350;
+const ENERGY_MAX = 700;
+const ENERGY_MAX_TRIES = 3;
+const ENERGY_HASHTAGS = ["#энергиядня", "#утро", "#поддержка", "#настрой"];
+
 function getHourInTZ(tz) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
@@ -65,6 +70,67 @@ function mimeByExt(filePath) {
   if (ext === ".webp") return "image/webp";
   // fallback
   return "application/octet-stream";
+}
+
+function normalizeText(text) {
+  return String(text || "").replace(/\r/g, "").trim();
+}
+
+function validateEnergyCaption(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+
+  const length = normalized.length;
+  if (length < ENERGY_MIN || length > ENERGY_MAX) return false;
+
+  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 6) return false;
+
+  const hasTodayLine = lines.some((line) => line.toLowerCase().startsWith("сегодня —"));
+  if (!hasTodayLine) return false;
+
+  const hasEnergyLine = lines.some((line) => line.toLowerCase().startsWith("энергия дня:"));
+  if (!hasEnergyLine) return false;
+
+  const hasRecommendationsHeader = lines.some((line) => line.toLowerCase().startsWith("рекомендации"));
+  if (!hasRecommendationsHeader) return false;
+
+  const hasRecommendation = lines.some((line) => line.startsWith("—"));
+  if (!hasRecommendation) return false;
+
+  return true;
+}
+
+function appendEnergyHashtags(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return normalized;
+
+  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+  const last = lines.at(-1) || "";
+  if (last.startsWith("#")) return normalized;
+
+  const shuffled = [...ENERGY_HASHTAGS].sort(() => Math.random() - 0.5);
+  const count = Math.min(3, Math.max(2, Math.floor(Math.random() * 2) + 2));
+  lines.push(shuffled.slice(0, count).join(" "));
+  return lines.join("\n");
+}
+
+function buildEnergyFallbackCaption({ timezone }) {
+  const today = getTodayRu(timezone);
+  return [
+    "Энергия дня",
+    "",
+    `Сегодня — ${today}.`,
+    "Энергия дня: мягкая устойчивость",
+    "",
+    "Сегодня важно бережно распределить силы и не спешить. Маленькие шаги помогут почувствовать опору.",
+    "",
+    "Рекомендации:",
+    "— выбери один приоритет и держись его",
+    "— делай паузы между задачами",
+    "",
+    ENERGY_HASHTAGS.slice(0, 3).join(" "),
+  ].join("\n");
 }
 
 async function generateEnergyCaption({ timezone, genApiKey }) {
@@ -137,19 +203,47 @@ async function postDailyEnergy({
   }
 
   try {
-    const caption = await generateEnergyCaption({ timezone, genApiKey });
-    const imagePath = pickEnergyImage(imagesDir);
+    let caption = "";
+    for (let i = 0; i < ENERGY_MAX_TRIES; i++) {
+      caption = await generateEnergyCaption({ timezone, genApiKey });
+      caption = appendEnergyHashtags(caption);
+      if (validateEnergyCaption(caption)) break;
+      caption = "";
+      await new Promise((resolve) => setTimeout(resolve, 800 + i * 400));
+    }
+    if (!caption) {
+      console.log("🌞 Энергия дня: не удалось сгенерировать корректный текст, использую шаблон");
+      caption = buildEnergyFallbackCaption({ timezone });
+    }
+    let imagePath;
+    try {
+      imagePath = pickEnergyImage(imagesDir);
+    } catch (e) {
+      console.error("🌞 Нет картинки для энергии дня:", e.message);
+    }
 
-    const stream = fs.createReadStream(imagePath);
+    if (!imagePath) {
+      await bot.sendMessage(channelId, caption);
+      console.log("🌞 Энергия дня опубликована без картинки");
+      return;
+    }
 
-    // ✅ ВАЖНО: fileOptions (4-й аргумент) — чтобы убрать DeprecationWarning
-    const fileOptions = {
-      filename: path.basename(imagePath),
-      contentType: mimeByExt(imagePath),
-    };
+    try {
+      const stream = fs.createReadStream(imagePath);
 
-    await bot.sendPhoto(channelId, stream, { caption }, fileOptions);
-    console.log("🌞 Энергия дня опубликована");
+      // ✅ ВАЖНО: fileOptions (4-й аргумент) — чтобы убрать DeprecationWarning
+      const fileOptions = {
+        filename: path.basename(imagePath),
+        contentType: mimeByExt(imagePath),
+      };
+
+      await bot.sendPhoto(channelId, stream, { caption }, fileOptions);
+      console.log("🌞 Энергия дня опубликована");
+    } catch (e) {
+      console.error("🌞 Ошибка отправки фото энергии дня:", e.response?.data || e.message);
+      await bot.sendMessage(channelId, caption);
+      console.log("🌞 Энергия дня опубликована без картинки");
+    }
   } catch (e) {
     console.error("🌞 Ошибка энергии дня:", e.response?.data || e.message);
   }

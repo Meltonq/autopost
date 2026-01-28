@@ -51,13 +51,25 @@ const CTA = [
   "Если было полезно — поставь реакцию ❤️",
 ];
 
+const RUBRIC_HASHTAGS = {
+  clarity: ["#ясность", "#выбор", "#приоритеты", "#самоценность"],
+  practice: ["#практика", "#маленькийшаг", "#наблюдение", "#привычки"],
+  reflection: ["#рефлексия", "#чувства", "#пауза", "#самоподдержка"],
+};
+const COMMON_HASHTAGS = ["#коучинг", "#саморазвитие", "#поддержка", "#женщины40plus"];
+
 const IMAGES_DIR = path.resolve("./images");
 const USED_IMAGES_FILE = "./images_used.json";
 const POSTS_MEMORY_FILE = "./posts_memory.json";
+const VALIDATION_STATS_FILE = "./validation_stats.json";
 
-const CAPTION_LIMIT = 900;
+const CAPTION_MIN = 500;
+const CAPTION_MAX = 900;
+const CAPTION_MIN_SOFT = 480;
+const CAPTION_MAX_SOFT = 920;
 const MAX_TRIES = 4;
 const SIM_THRESHOLD = 0.45;
+const VALIDATION_REPORT_INTERVAL = 24 * 60 * 60 * 1000;
 
 // ===== Utils =====
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -162,6 +174,47 @@ function scheduleDailyAt({ hour, minute }, fn, label = "daily") {
 }
 
 // ===== Similarity =====
+const STOP_WORDS = new Set([
+  "это",
+  "как",
+  "что",
+  "чтобы",
+  "когда",
+  "тогда",
+  "есть",
+  "еще",
+  "ещё",
+  "вот",
+  "тут",
+  "там",
+  "про",
+  "при",
+  "для",
+  "без",
+  "или",
+  "она",
+  "оно",
+  "они",
+  "ты",
+  "вы",
+  "мы",
+  "он",
+  "тот",
+  "эта",
+  "эти",
+  "твой",
+  "тебя",
+  "твое",
+  "вас",
+  "ваши",
+  "себя",
+  "здесь",
+  "будто",
+  "тоже",
+  "уже",
+  "теперь",
+]);
+
 function normalize(t) {
   return (t || "")
     .toLowerCase()
@@ -170,12 +223,35 @@ function normalize(t) {
     .replace(/\s+/g, " ")
     .trim();
 }
-function similarity(a, b) {
-  const A = new Set(normalize(a).split(" ").filter((w) => w.length > 3));
-  const B = new Set(normalize(b).split(" ").filter((w) => w.length > 3));
+function toWordSet(text) {
+  return new Set(
+    normalize(text)
+      .split(" ")
+      .filter((w) => w.length > 3 && !STOP_WORDS.has(w))
+  );
+}
+
+function toBigramSet(text) {
+  const words = normalize(text)
+    .split(" ")
+    .filter((w) => w.length > 3 && !STOP_WORDS.has(w));
+  const bigrams = [];
+  for (let i = 0; i < words.length - 1; i++) {
+    bigrams.push(`${words[i]}_${words[i + 1]}`);
+  }
+  return new Set(bigrams);
+}
+
+function jaccard(setA, setB) {
   let inter = 0;
-  for (const w of A) if (B.has(w)) inter++;
-  return inter / (A.size + B.size - inter || 1);
+  for (const w of setA) if (setB.has(w)) inter++;
+  return inter / (setA.size + setB.size - inter || 1);
+}
+
+function similarity(a, b) {
+  const wordScore = jaccard(toWordSet(a), toWordSet(b));
+  const bigramScore = jaccard(toBigramSet(a), toBigramSet(b));
+  return (wordScore * 0.6 + bigramScore * 0.4);
 }
 
 // ===== Images =====
@@ -205,10 +281,44 @@ function pickNextRubric(prevRubric) {
   return options[Math.floor(Math.random() * options.length)];
 }
 
-function clampCaption(text) {
-  if (!text) return "";
-  return text.length <= CAPTION_LIMIT ? text : text.slice(0, CAPTION_LIMIT).trim();
+function pickCTA(lastCta) {
+  const options = lastCta ? CTA.filter((item) => item !== lastCta) : CTA;
+  const pool = options.length ? options : CTA;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
+
+const FALLBACK_TEMPLATES = {
+  clarity: {
+    title: "✨ Чуть больше ясности",
+    body: [
+      "Иногда ты уже многое понимаешь, но решения всё ещё не двигаются. Это бывает, когда внутри смешаны цели и ожидания окружающих.",
+      "Попробуй отделить «надо» от «хочу» — так появляется спокойная точка опоры.",
+      "✨ Мини-практика:",
+      "— выпиши 3 «надо» на сегодня",
+      "— рядом напиши, что ты действительно хочешь",
+    ].join("\n"),
+  },
+  practice: {
+    title: "✨ Маленький шаг",
+    body: [
+      "Когда сил мало, большой план только усиливает давление. Небольшое действие даёт ощущение движения и возвращает контроль.",
+      "Сделай шаг, который занимает не больше пяти минут.",
+      "✨ Мини-практика:",
+      "— выбери одну микрозадачу",
+      "— выдели под неё 5 минут",
+    ].join("\n"),
+  },
+  reflection: {
+    title: "✨ Мягкая пауза",
+    body: [
+      "Ты можешь быть сильной и при этом уставать. Пауза — это не слабость, а способ услышать себя.",
+      "Когда внутри напряжение, честный взгляд помогает вернуть баланс.",
+      "✨ Мини-практика:",
+      "— остановись на минуту",
+      "— назови своё чувство одним словом",
+    ].join("\n"),
+  },
+};
 
 async function generateCaption({ rubric, tone, cta }) {
   const prompt = `
@@ -315,7 +425,188 @@ function buildCaptionHTML(title, body) {
     .replace(/[<>]/g, "")
     .trim();
 
-  return clampCaption(`<b>${cleanTitle}</b>\n\n${cleanBody}`);
+  return `<b>${cleanTitle}</b>\n\n${cleanBody}`.trim();
+}
+
+function stripHtml(text) {
+  return String(text || "")
+    .replace(/<\/?b>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/[<>]/g, "")
+    .trim();
+}
+
+function startsWithEmoji(text) {
+  return /^[\p{Extended_Pictographic}]/u.test(String(text || "").trim());
+}
+
+function hasValidHashtags(line) {
+  const trimmed = (line || "").trim();
+  if (!trimmed) return false;
+  const tags = trimmed.split(/\s+/).filter(Boolean);
+  return (
+    tags.length >= 2 &&
+    tags.length <= 4 &&
+    tags.every((tag) => /^#[\p{L}\p{N}_-]+$/u.test(tag))
+  );
+}
+
+function buildHashtagsFallback(rubric) {
+  const pool = RUBRIC_HASHTAGS[rubric] || RUBRIC_HASHTAGS.clarity;
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  const common = [...COMMON_HASHTAGS].sort(() => Math.random() - 0.5);
+  const count = Math.min(4, Math.max(2, Math.floor(Math.random() * 3) + 2));
+  const base = shuffled.slice(0, Math.max(1, count - 1));
+  const extra = common.slice(0, Math.max(1, count - base.length));
+  return [...base, ...extra].slice(0, count).join(" ");
+}
+
+async function generateHashtagLine({ rubric, title }) {
+  const prompt = `
+Сгенерируй строку из 2–4 хэштегов на русском.
+Тема: ${rubric || "clarity"}.
+Заголовок: ${title || "Без заголовка"}.
+Требования:
+- Только хэштеги, в одной строке
+- Между хэштегами пробел
+- Без эмодзи и без текста кроме хэштегов
+- Каждый хэштег начинается с #
+`.trim();
+
+  try {
+    const res = await axios.post(
+      "https://api.gen-api.ru/api/v1/networks/qwen-3",
+      {
+        is_sync: true,
+        model: "qwen-plus",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "text" },
+        temperature: 0.6,
+        top_p: 0.9,
+        max_new_tokens: 80,
+      },
+      {
+        headers: { Authorization: `Bearer ${process.env.GENAPI_API_KEY}` },
+        timeout: 30000,
+      }
+    );
+    const line = String(res.data?.response?.[0]?.message?.content || "").trim().split(/\r?\n/)[0] || "";
+    return hasValidHashtags(line) ? line : null;
+  } catch (e) {
+    console.error("Ошибка генерации хэштегов:", e.response?.data || e.message);
+    return null;
+  }
+}
+
+function rebuildBodyWithTail(body, cta, hashtagLine) {
+  const lines = stripHtml(body)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line !== cta && !line.startsWith("#"));
+
+  return [...lines, cta, hashtagLine].join("\n");
+}
+
+function buildFallbackCaption({ rubric, cta }) {
+  const template = FALLBACK_TEMPLATES[rubric] || FALLBACK_TEMPLATES.clarity;
+  const hashtagLine = buildHashtagsFallback(rubric);
+  const body = rebuildBodyWithTail(template.body, cta, hashtagLine);
+  return buildCaptionHTML(template.title, body);
+}
+
+function countEmojis(text) {
+  return (String(text || "").match(/[\p{Extended_Pictographic}]/gu) || []).length;
+}
+
+function validateCaptionParts({ rubric, title, body, cta, expectedRubric }) {
+  const cleanTitle = stripHtml(title);
+  const cleanBody = stripHtml(body);
+  const errors = [];
+
+  if (!cleanTitle || cleanTitle.length < 3 || cleanTitle.length > 80) {
+    errors.push("bad_title");
+  }
+  if (!startsWithEmoji(cleanTitle)) {
+    errors.push("title_missing_emoji");
+  }
+  if (countEmojis(cleanTitle) !== 1) {
+    errors.push("title_emoji_count");
+  }
+  if (!cleanBody || cleanBody.length < 200) {
+    errors.push("short_body");
+  }
+  if (!cleanBody.includes("✨ Мини-практика:")) {
+    errors.push("missing_practice_block");
+  }
+
+  const lines = cleanBody.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const stepsCount = lines.filter((line) => line.startsWith("—")).length;
+  if (stepsCount < 2) {
+    errors.push("not_enough_steps");
+  }
+
+  const ctaIndex = lines.indexOf(cta);
+  if (ctaIndex === -1) {
+    errors.push("cta_missing");
+  }
+
+  const hashtagLine = lines.at(-1);
+  if (!hasValidHashtags(hashtagLine)) {
+    errors.push("bad_hashtags");
+  }
+  if (ctaIndex !== -1 && ctaIndex !== lines.length - 2) {
+    errors.push("cta_position");
+  }
+
+  const combined = stripHtml(buildCaptionHTML(cleanTitle, cleanBody));
+  if (combined.length < CAPTION_MIN || combined.length > CAPTION_MAX) {
+    errors.push("bad_length");
+  }
+
+  if (expectedRubric && rubric && rubric !== expectedRubric) {
+    errors.push("rubric_mismatch");
+  }
+
+  if (errors.length === 0) return { ok: true, errors };
+
+  const softLengthOk =
+    combined.length >= CAPTION_MIN_SOFT && combined.length <= CAPTION_MAX_SOFT;
+  if (errors.length === 1 && errors[0] === "bad_length" && softLengthOk) {
+    return { ok: true, errors, warnings: ["soft_length"] };
+  }
+
+  return { ok: false, errors };
+}
+
+function logValidationResult(result) {
+  if (result?.ok) return;
+  const reasons = result?.errors?.length ? result.errors.join(",") : "invalid_caption";
+  console.log(`⚠️ Валидация поста не пройдена: ${reasons}`);
+}
+
+function readValidationStats() {
+  return readJson(VALIDATION_STATS_FILE, { total: 0, reasons: {} });
+}
+
+function writeValidationStats(stats) {
+  writeJson(VALIDATION_STATS_FILE, stats);
+}
+
+function recordValidationFailure(errors = []) {
+  const stats = readValidationStats();
+  stats.total += 1;
+  for (const reason of errors) {
+    stats.reasons[reason] = (stats.reasons[reason] || 0) + 1;
+  }
+  writeValidationStats(stats);
+}
+
+function logValidationSummary() {
+  const stats = readValidationStats();
+  const entries = Object.entries(stats.reasons).sort((a, b) => b[1] - a[1]);
+  const top = entries.slice(0, 5).map(([k, v]) => `${k}:${v}`).join(", ");
+  console.log(`📊 Валидация: всего=${stats.total} топ=${top || "нет"}`);
 }
 
 // ===== Posting =====
@@ -326,28 +617,62 @@ async function post({ reason = "scheduled" } = {}) {
   }
 
   const memory = readJson(POSTS_MEMORY_FILE, []);
-  const lastRubric = memory.at(-1)?.rubric;
+  const lastEntry = memory.at(-1);
+  const lastRubric = lastEntry?.rubric;
+  const lastCta = lastEntry?.cta;
 
   for (let i = 0; i < MAX_TRIES; i++) {
     const rubricWanted = pickNextRubric(lastRubric);
     const tone = TONES[Math.floor(Math.random() * TONES.length)];
-    const cta = CTA[Math.floor(Math.random() * CTA.length)];
+    const cta = pickCTA(lastCta);
 
     let raw;
     try {
       raw = await generateCaption({ rubric: rubricWanted, tone, cta });
     } catch (e) {
       console.error("Ошибка генерации:", e.response?.data || e.message);
-      await sleep(800);
+      await sleep(1000 + i * 600);
       continue;
     }
 
     const parsed = parseModelOutput(raw);
     const rubric = parsed.rubric || rubricWanted;
+    let body = parsed.body;
 
     if (rubric === lastRubric) continue;
 
-    const caption = buildCaptionHTML(parsed.title || "Небольшая пауза", parsed.body);
+    let validation = validateCaptionParts({
+      rubric,
+      title: parsed.title,
+      body,
+      cta,
+      expectedRubric: rubricWanted,
+    });
+    if (!validation.ok) {
+      const reasons = validation.errors || [];
+      if (reasons.includes("bad_hashtags") || reasons.includes("cta_missing") || reasons.includes("cta_position")) {
+        const hashtagLine =
+          (await generateHashtagLine({ rubric, title: parsed.title })) || buildHashtagsFallback(rubric);
+        body = rebuildBodyWithTail(body, cta, hashtagLine);
+        validation = validateCaptionParts({
+          rubric,
+          title: parsed.title,
+          body,
+          cta,
+          expectedRubric: rubricWanted,
+        });
+      }
+    }
+    if (!validation.ok) {
+      recordValidationFailure(validation.errors || []);
+      logValidationResult(validation);
+      continue;
+    }
+    if (validation.warnings?.length) {
+      console.log(`⚠️ Валидация с предупреждением: ${validation.warnings.join(",")}`);
+    }
+
+    const caption = buildCaptionHTML(parsed.title || "Небольшая пауза", body);
     if (!caption || caption.length < 220) continue;
     if (memory.some((m) => similarity(m.text, caption) > SIM_THRESHOLD)) continue;
 
@@ -357,7 +682,7 @@ async function post({ reason = "scheduled" } = {}) {
     } catch (e) {
       console.error(e.message);
       await bot.sendMessage(channelId, caption, { parse_mode: "HTML", disable_web_page_preview: true });
-      memory.push({ ts: new Date().toISOString(), rubric, text: caption });
+      memory.push({ ts: new Date().toISOString(), rubric, cta, text: caption });
       writeJson(POSTS_MEMORY_FILE, memory.slice(-40));
       console.log(`✅ Опубликовано без фото (${reason})`, { rubric, tone });
       return;
@@ -386,14 +711,23 @@ async function post({ reason = "scheduled" } = {}) {
       );
     }
 
-    memory.push({ ts: new Date().toISOString(), rubric, text: caption });
+    memory.push({ ts: new Date().toISOString(), rubric, cta, text: caption });
     writeJson(POSTS_MEMORY_FILE, memory.slice(-40));
 
     console.log(`✅ Опубликовано (${reason})`, { rubric, tone, hour: getHourInTZ(TIMEZONE) });
     return;
   }
 
-  console.log("❌ Не удалось сгенерировать уникальный пост");
+  const fallbackRubric = pickNextRubric(lastRubric);
+  const fallbackCta = pickCTA(lastCta);
+  const fallbackCaption = buildFallbackCaption({
+    rubric: fallbackRubric,
+    cta: fallbackCta,
+  });
+  console.log("⚠️ Публикую запасной пост");
+  await bot.sendMessage(channelId, fallbackCaption, { parse_mode: "HTML", disable_web_page_preview: true });
+  memory.push({ ts: new Date().toISOString(), rubric: fallbackRubric, cta: fallbackCta, text: fallbackCaption });
+  writeJson(POSTS_MEMORY_FILE, memory.slice(-40));
 }
 
 // ===== Scheduler (hourly) =====
@@ -458,6 +792,9 @@ function scheduleAtHours({ hours, minute }, fn, label = "hours") {
 console.log(
   `🚀 Бот запущен. Активные часы ${ACTIVE_HOURS_START}:00–${ACTIVE_HOURS_END}:00 (${TIMEZONE}). MAIN=${MAIN_SCHEDULE_MODE}.`
 );
+
+logValidationSummary();
+setInterval(logValidationSummary, VALIDATION_REPORT_INTERVAL);
 
 // Тестовый пост при старте (по желанию)
 if (SEND_TEST_ON_START) {
