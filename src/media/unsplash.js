@@ -105,7 +105,7 @@ export async function pickUnsplashImage({
   defaultQuery,
 }) {
   const used = usedStore.read();
-  const queryByRubric = theme?.unsplash?.queryByRubric || {};
+  const queryByRubric = theme?.media?.unsplash?.queryByRubric || theme?.unsplash?.queryByRubric || {};
   const query = queryByRubric[rubric] || queryByRubric.default || defaultQuery || "minimal calm";
 
   for (let i = 0; i < 5; i += 1) {

@@ -95,6 +95,37 @@ images/
 2. Заполните обязательные поля `name`, `audience`, `rubrics`, `tones`, `cta`, `captionRules`.
 3. Установите `BOT_THEME=newtheme`.
 
+### Полный шаблон промпта (fullTemplate)
+
+Чтобы включить режим, в теме добавьте:
+
+```json
+{
+  "promptConfig": {
+    "mode": "fullTemplate",
+    "template": "Полный промпт с плейсхолдерами ${rubric}, ${tone}, ${cta}"
+  },
+  "fallbackTemplates": {
+    "clarity": { "title": "✨ Заголовок", "body": "Текст\\n✨ Мини-практика:\\n— шаг" }
+  },
+  "captionRules": {
+    "minChars": 500,
+    "maxChars": 900
+  },
+  "media": {
+    "unsplash": { "queryByRubric": { "clarity": "calm journal" } }
+  }
+}
+```
+
+Подстановки в `template` выполняются для всех вхождений `${rubric}`, `${tone}`, `${cta}`. Если режим не включён — используется стандартная логика `buildPrompt` и `briefsByRubric`.
+
+Для проверки можно запустить пример:
+
+```bash
+node scripts/preview-full-template.js
+```
+
 ## Изображения
 
 - Локальные: положите изображения в `images/<rubric>/` или прямо в `images/`.
