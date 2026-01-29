@@ -1,6 +1,6 @@
 export function buildPrompt({ theme, rubric, tone, cta, brief }) {
   const rules = theme.captionRules || {};
-  const min = rules.min;
+  const min = rules.allowShorter ? 0 : rules.min;
   const max = rules.max;
 
   const system = [
@@ -16,7 +16,9 @@ export function buildPrompt({ theme, rubric, tone, cta, brief }) {
     `Rubric: ${rubric}.`,
     `Short brief: ${brief}.`,
     `Call to action (append as a separate last line, verbatim): ${cta}.`,
-    `Target length: ${min}-${max} characters (including CTA).`,
+    min === 0
+      ? `Target length: up to ${max} characters (including CTA).`
+      : `Target length: ${min}-${max} characters (including CTA).`,
     "Output only the final post text. No titles like 'Post:' or 'Rubric:'.",
   ].join("\n");
 

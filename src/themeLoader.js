@@ -68,6 +68,12 @@ function validateTheme(theme, where = "<theme>") {
       "captionRules.similarityThreshold must be between 0 and 1"
     );
   }
+  if (rules.telegramMax != null) {
+    need(Number.isFinite(rules.telegramMax) && rules.telegramMax > 0, "captionRules.telegramMax must be > 0");
+  }
+  if (rules.allowShorter != null) {
+    need(typeof rules.allowShorter === "boolean", "captionRules.allowShorter must be a boolean");
+  }
 
   if (theme.schedule) {
     need(typeof theme.schedule === "object", "schedule must be an object");

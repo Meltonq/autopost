@@ -176,6 +176,7 @@ async function pickImage({ rubric }) {
 
 async function sendToTelegram({ text, image }) {
   if (!text) throw new Error("Empty text is not allowed");
+  if (!image) throw new Error("Image is required");
 
   if (image?.type === "buffer") {
     await withRetry(
@@ -204,12 +205,16 @@ async function sendToTelegram({ text, image }) {
     return;
   }
 
-  await withRetry(() => bot.sendMessage(channelId, text, { disable_web_page_preview: true }), { label: "telegram-message" });
+  throw new Error("Unsupported image type");
 }
 
 async function post({ reason = "scheduled", rubricOverride, toneOverride, ctaOverride, dryRun = false } = {}) {
   if (!isActiveHours({ timezone: TIMEZONE, start: ACTIVE_HOURS_START, end: ACTIVE_HOURS_END })) {
     console.log(`🌙 Неактивные часы — пропуск (${reason}) (${TIMEZONE})`);
+    return;
+  }
+  if (IMAGE_MODE === "off") {
+    console.warn("⚠️ IMAGE_MODE=off — изображения обязательны, пост отменён");
     return;
   }
 
@@ -259,8 +264,13 @@ async function post({ reason = "scheduled", rubricOverride, toneOverride, ctaOve
     try {
       image = await pickImage({ rubric });
     } catch (err) {
-      console.warn("⚠️ Image selection failed, sending text-only:", err?.message || err);
+      console.warn("⚠️ Image selection failed:", err?.message || err);
       image = null;
+    }
+
+    if (!image) {
+      console.warn("⚠️ Image is required, retrying");
+      continue;
     }
 
     await sendToTelegram({ text, image });
