@@ -147,7 +147,9 @@ async function generateCaption({ rubric, tone, cta }) {
 async function pickImage({ rubric }) {
   if (IMAGE_MODE === "off") return null;
 
-  const preferUnsplash = IMAGE_MODE === "unsplash" || (IMAGE_MODE === "auto" && USE_UNSPLASH);
+  const preferUnsplash =
+    IMAGE_MODE === "unsplash" ||
+    (IMAGE_MODE === "auto" && (USE_UNSPLASH || Boolean(UNSPLASH_ACCESS_KEY)));
   if (preferUnsplash && UNSPLASH_ACCESS_KEY) {
     return pickUnsplashImage({
       accessKey: UNSPLASH_ACCESS_KEY,
