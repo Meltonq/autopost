@@ -1,0 +1,55 @@
+# ===== Required =====
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHANNEL_ID=@testcanne
+GENAPI_API_KEY=
+
+# ===== Theme =====
+BOT_THEME=#game coaching40plus
+THEMES_DIR=./src/themes
+
+# ===== Timezone / schedule =====
+BOT_TIMEZONE=Europe/Moscow
+ACTIVE_HOURS_START=7
+ACTIVE_HOURS_END=23
+
+MAIN_SCHEDULE_MODE=hours   # hourly|hours|daily|off
+MAIN_POST_HOURS=8,12,18
+MAIN_POST_MINUTE=0
+MAIN_POST_TIME=12:00
+SEND_TEST_ON_START=true
+TG_CAPTION_MAX=900
+TG_MESSAGE_MAX=4000
+
+# ===== Images =====
+IMAGES_DIR=./images
+DATA_DIR=./data
+TG_MAX_PHOTO_BYTES=1900000
+
+
+# Unsplash (optional)
+USE_UNSPLASH=true
+UNSPLASH_ACCESS_KEY=
+UNSPLASH_APP_NAME=Autopost
+UNSPLASH_IMG_W=1280
+UNSPLASH_IMG_Q=80
+UNSPLASH_ORIENTATION=portrait
+UNSPLASH_CONTENT_FILTER=high
+
+# ===== Energy (optional) =====
+ENERGY_ENABLED=true
+ENERGY_POST_TIME=09:30
+ENERGY_IMAGES_DIR=./images/energy
+# dailyEnergy.js также читает UNSPLASH_QUERY_ENERGY если USE_UNSPLASH=true
+UNSPLASH_QUERY_ENERGY=calm morning, coffee, sunrise, minimal
+# ===== Post validation (универсальная) =====
+POST_MIN_LEN=450
+POST_MAX_LEN=1100
+POST_STEPS_MIN=2
+
+
+
+# ВАЖНО: считать пункты по regex, а не только по "—"
+POST_STEP_REGEX=^[\s]*[—–\-•]\s*
+
+# Если не хочешь падать из-за длины (рекомендую на старте)
+POST_LENGTH_STRICT=false
