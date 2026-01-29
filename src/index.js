@@ -134,6 +134,58 @@ function getLastMemory() {
   return { memory, last };
 }
 
+function truncateBody(text, maxLength) {
+  if (text.length <= maxLength) return text;
+  const slice = text.slice(0, maxLength).trimEnd();
+  const lastPunctuation = Math.max(slice.lastIndexOf("."), slice.lastIndexOf("!"), slice.lastIndexOf("?"), slice.lastIndexOf("…"));
+  if (lastPunctuation > 0) {
+    return slice.slice(0, lastPunctuation + 1).trimEnd();
+  }
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace > 0) {
+    return slice.slice(0, lastSpace).trimEnd();
+  }
+  return slice;
+}
+
+function enforceHardMaxLength(text, theme) {
+  const rules = theme.captionRules || {};
+  const max = Number(rules.max ?? Infinity);
+  const telegramMax = Number(rules.telegramMax ?? Infinity);
+  const hardMax = Number.isFinite(telegramMax) ? Math.min(max, telegramMax) : max;
+
+  if (!Number.isFinite(hardMax) || text.length <= hardMax) {
+    return text;
+  }
+
+  const lines = text.trim().split(/\r?\n/);
+  let ctaLine = "";
+  let ctaIndex = -1;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].trim()) {
+      ctaLine = lines[i].trim();
+      ctaIndex = i;
+      break;
+    }
+  }
+
+  if (!ctaLine) {
+    return truncateBody(text.trim(), hardMax);
+  }
+
+  const bodyLines = lines.slice(0, ctaIndex).filter((line) => line.trim() !== "");
+  const body = bodyLines.join("\n").trim();
+  const separatorLength = body ? 1 : 0;
+  const availableBodyLength = hardMax - ctaLine.length - separatorLength;
+
+  if (availableBodyLength <= 0) {
+    return ctaLine.length > hardMax ? ctaLine.slice(0, hardMax) : ctaLine;
+  }
+
+  const trimmedBody = truncateBody(body, availableBodyLength);
+  return trimmedBody ? `${trimmedBody}\n${ctaLine}` : ctaLine;
+}
+
 async function generateCaption({ rubric, tone, cta }) {
   const brief = pickBrief(theme, rubric);
   const prompt = buildPrompt({ theme, rubric, tone, cta, brief });
@@ -141,7 +193,8 @@ async function generateCaption({ rubric, tone, cta }) {
     () => generator.generate({ system: prompt.system, user: prompt.user, timeoutMs: Number(process.env.LLM_TIMEOUT_MS || 60000) }),
     { label: "llm" }
   );
-  return text.trim();
+  const trimmed = text.trim();
+  return enforceHardMaxLength(trimmed, theme);
 }
 
 async function pickImage({ rubric }) {
