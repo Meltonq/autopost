@@ -1,4 +1,3 @@
-import { OpenAIAdapter } from "./adapters/openai.js";
 import { GenApiAdapter } from "./adapters/genapi.js";
 
 export function createGenerator(config) {
@@ -9,17 +8,6 @@ export function createGenerator(config) {
       apiKey: config.genApiKey,
       endpoint: config.genApiEndpoint,
       model: config.genApiModel,
-      temperature: config.temperature,
-      topP: config.topP,
-      maxTokens: config.maxTokens,
-    });
-  }
-
-  if (provider === "openai") {
-    return new OpenAIAdapter({
-      apiKey: config.openAiKey,
-      baseUrl: config.openAiBaseUrl,
-      model: config.openAiModel,
       temperature: config.temperature,
       topP: config.topP,
       maxTokens: config.maxTokens,
@@ -37,16 +25,5 @@ export function createGenerator(config) {
     });
   }
 
-  if (config.openAiKey) {
-    return new OpenAIAdapter({
-      apiKey: config.openAiKey,
-      baseUrl: config.openAiBaseUrl,
-      model: config.openAiModel,
-      temperature: config.temperature,
-      topP: config.topP,
-      maxTokens: config.maxTokens,
-    });
-  }
-
-  throw new Error("No LLM provider configured. Set LLM_PROVIDER + API key.");
+  throw new Error("No LLM provider configured. Set LLM_PROVIDER + GENAPI_API_KEY.");
 }

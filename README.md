@@ -8,7 +8,7 @@
 - Автономная публикация по расписанию (hourly / daily / список часов).
 - Активные часы в заданной таймзоне.
 - Дополнительная ежедневная рубрика (опционально).
-- Генерация текста через внешний API (OpenAI-compatible или GENAPI).
+- Генерация текста через внешний API (GENAPI).
 - Антиповторы и проверка похожести контента.
 - Локальные изображения и Unsplash (без повторов).
 - Админ-команды: `/theme`, `/post`, `/dryrun`.
@@ -29,8 +29,8 @@ npm start
 - `TELEGRAM_BOT_TOKEN` — токен бота.
 - `TELEGRAM_CHANNEL_ID` — ID канала или `@channel`.
 - `BOT_THEME` — имя темы (например `default`, `game`, `coaching40plus`).
-- `LLM_PROVIDER` — `openai` или `genapi` (если не указано, выбирается по ключам).
-- `OPENAI_API_KEY` или `GENAPI_API_KEY` — ключ LLM.
+- `LLM_PROVIDER` — `genapi` (если не указано, выбирается по ключам).
+- `GENAPI_API_KEY` — ключ LLM.
 - `MAIN_SCHEDULE_MODE` — `hourly`, `hours`, `daily`, `off`.
 - `BOT_TIMEZONE` — таймзона (по умолчанию `Europe/Helsinki`).
 
