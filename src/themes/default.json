@@ -15,6 +15,8 @@
     "max": 750,
     "minSoft": 360,
     "maxSoft": 780,
+    "allowShorter": true,
+    "telegramMax": 1024,
     "maxTries": 4,
     "similarityThreshold": 0.45
   },
