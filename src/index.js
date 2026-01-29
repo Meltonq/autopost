@@ -498,6 +498,12 @@ function normalizeLooseText(s) {
     .trim();
 }
 
+function normalizeStepPrefixes(prefixes) {
+  const base = Array.isArray(prefixes) && prefixes.length ? prefixes : ["—"];
+  const normalized = base.map((p) => normalizeLooseText(p)).filter(Boolean);
+  return Array.from(new Set([...base, ...normalized]));
+}
+
 function escapeRegex(s) {
   return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -521,7 +527,7 @@ function dedupeAdjacentLines(text) {
 }
 
 function dedupeStepLines(text, stepPrefixes) {
-  const prefixes = Array.isArray(stepPrefixes) ? stepPrefixes : ["—"];
+  const prefixes = normalizeStepPrefixes(stepPrefixes);
   const seen = new Set();
   const lines = String(text || "").split(/\\r?\\n/);
   const out = [];
@@ -545,7 +551,7 @@ function stripForbiddenSections(body, theme) {
   const forbidden = v.forbidden_sections || [];
   if (!forbidden.length) return body;
 
-  const prefixes = v.step_prefixes || ["—"];
+  const prefixes = normalizeStepPrefixes(v.step_prefixes || ["—"]);
   const lines = String(body || "").split(/\\r?\\n/);
 
   const isHeader = (line) => {
@@ -571,6 +577,10 @@ function stripForbiddenSections(body, theme) {
     out.push(line);
   }
   return out.join("\\n");
+}
+
+function buildCombinedText({ title, body, cta }) {
+  return normalizeLooseText([stripHtml(title), stripHtml(body), cta].filter(Boolean).join("\n\n"));
 }
 
 
@@ -692,6 +702,50 @@ function rebuildBodyWithTail(body, cta, hashtagLine) {
   return [...lines, cta, hashtagLine].join("\n");
 }
 
+function padBodyToMinLength({ title, body, cta, theme }) {
+  const v = getThemeValidation(theme);
+  const minLength = v.min_length ?? 0;
+  const maxLength = v.max_length ?? Infinity;
+  if (!minLength) return body;
+
+  let combined = buildCombinedText({ title, body, cta });
+  if (combined.length >= minLength) return body;
+
+  const paddingLines = [
+    "Сделай это бережно, без давления.",
+    "Можно начать с малого и дать себе время.",
+    "Наблюдай, что меняется, без спешки.",
+  ];
+
+  const lines = stripHtml(body)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const normalizedCta = cta ? normalizeLooseText(cta) : null;
+  let insertAt = lines.length;
+
+  if (normalizedCta) {
+    const ctaIndex = lines.findIndex((line) => normalizeLooseText(line) === normalizedCta);
+    if (ctaIndex >= 0) insertAt = ctaIndex;
+  } else {
+    const hashIndex = lines.findIndex((line) => line.startsWith("#"));
+    if (hashIndex >= 0) insertAt = hashIndex;
+  }
+
+  for (const sentence of paddingLines) {
+    const nextLines = [...lines.slice(0, insertAt), sentence, ...lines.slice(insertAt)];
+    const nextBody = nextLines.join("\n");
+    const nextCombined = buildCombinedText({ title, body: nextBody, cta });
+    if (nextCombined.length > maxLength) break;
+    lines.splice(insertAt, 0, sentence);
+    insertAt += 1;
+    combined = nextCombined;
+    if (combined.length >= minLength) break;
+  }
+
+  return lines.join("\n");
+}
+
 
 
 function ensureRequiredBlockAndSteps({ body, rubric, cta, theme }) {
@@ -705,6 +759,7 @@ function ensureRequiredBlockAndSteps({ body, rubric, cta, theme }) {
   const required = (v.required_sections || []).filter((s) => s && s.required && s.label);
   const stepsMin = Number.isFinite(v.steps_min) ? v.steps_min : 0;
   const stepPrefixes = v.step_prefixes || ["—"];
+  const normalizedPrefixes = normalizeStepPrefixes(stepPrefixes);
 
   // Nothing to enforce
   if (!required.length && stepsMin <= 0) {
@@ -734,7 +789,10 @@ function ensureRequiredBlockAndSteps({ body, rubric, cta, theme }) {
 
   // 2) Ensure minimum number of step lines
   const countSteps = () =>
-    rawLines.filter((l) => stepPrefixes.some((p) => l.startsWith(p))).length;
+    rawLines.filter((l) => {
+      const normalized = normalizeLooseText(l);
+      return normalizedPrefixes.some((p) => normalized.startsWith(p));
+    }).length;
 
   let have = countSteps();
   const p = stepPrefixes[0] || "—";
@@ -765,7 +823,7 @@ function validateCaptionParts({ rubric, title, body, cta, expectedRubric, theme 
   const errors = [];
 
   const v = getThemeValidation(theme);
-  const combined = normalizeLooseText([cleanTitle, stripHtml(cleanBodyRaw), cta].filter(Boolean).join("\n\n"));
+  const combined = buildCombinedText({ title: cleanTitle, body: cleanBodyRaw, cta });
 
   // title rules (keep existing behavior)
   if (!cleanTitle || cleanTitle.length < 3 || cleanTitle.length > 80) errors.push("bad_title");
@@ -787,7 +845,8 @@ function validateCaptionParts({ rubric, title, body, cta, expectedRubric, theme 
 
   // steps (theme-driven)
   const lines = cleanBodyRaw.split(/\r?\n/).map((line) => normalizeLooseText(stripHtml(line))).filter(Boolean);
-  const stepsCount = lines.filter((line) => (v.step_prefixes || ["—"]).some((p) => line.startsWith(p))).length;
+  const stepPrefixes = normalizeStepPrefixes(v.step_prefixes || ["—"]);
+  const stepsCount = lines.filter((line) => stepPrefixes.some((p) => line.startsWith(p))).length;
   if (stepsCount < (v.steps_min ?? 0)) errors.push("not_enough_steps");
 
   // CTA present
@@ -871,6 +930,14 @@ async function post({ reason = "scheduled" } = {}) {
     body = ensureRequiredBlockAndSteps({ body, rubric, cta, theme });
 
     let validation = validateCaptionParts({ rubric, title: fixedTitle, body, cta, expectedRubric: rubricWanted, theme });
+
+    if (!validation.ok && validation.errors?.includes("bad_length")) {
+      const v = getThemeValidation(theme);
+      if (validation.length < (v.min_length ?? 0)) {
+        body = padBodyToMinLength({ title: fixedTitle, body, cta, theme });
+        validation = validateCaptionParts({ rubric, title: fixedTitle, body, cta, expectedRubric: rubricWanted, theme });
+      }
+    }
 
     if (!validation.ok) {
       const reasons = validation.errors || [];
