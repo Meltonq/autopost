@@ -74,6 +74,15 @@ function validateTheme(theme, where = "<theme>") {
   if (rules.allowShorter != null) {
     need(typeof rules.allowShorter === "boolean", "captionRules.allowShorter must be a boolean");
   }
+  if (rules.minChars != null) {
+    need(Number.isFinite(rules.minChars), "captionRules.minChars must be a number");
+  }
+  if (rules.maxChars != null) {
+    need(Number.isFinite(rules.maxChars), "captionRules.maxChars must be a number");
+  }
+  if (Number.isFinite(rules.minChars) && Number.isFinite(rules.maxChars)) {
+    need(rules.minChars < rules.maxChars, "captionRules.minChars must be < maxChars");
+  }
 
   if (theme.schedule) {
     need(typeof theme.schedule === "object", "schedule must be an object");
@@ -100,5 +109,37 @@ function validateTheme(theme, where = "<theme>") {
 
   if (theme.unsplash && typeof theme.unsplash !== "object") {
     need(false, "unsplash must be an object when provided");
+  }
+
+  if (theme.media && typeof theme.media !== "object") {
+    need(false, "media must be an object when provided");
+  }
+  if (theme.media?.unsplash && typeof theme.media.unsplash !== "object") {
+    need(false, "media.unsplash must be an object when provided");
+  }
+  if (theme.media?.unsplash?.queryByRubric && typeof theme.media.unsplash.queryByRubric !== "object") {
+    need(false, "media.unsplash.queryByRubric must be an object when provided");
+  }
+
+  if (theme.promptConfig) {
+    need(typeof theme.promptConfig === "object", "promptConfig must be an object when provided");
+    if (theme.promptConfig.mode != null) {
+      need(theme.promptConfig.mode === "fullTemplate", "promptConfig.mode must be fullTemplate when provided");
+    }
+    if (theme.promptConfig.template != null) {
+      need(typeof theme.promptConfig.template === "string", "promptConfig.template must be a string");
+    }
+    if (theme.promptConfig.mode === "fullTemplate") {
+      need(typeof theme.promptConfig.template === "string" && theme.promptConfig.template.trim(), "promptConfig.template is required");
+    }
+  }
+
+  if (theme.fallbackTemplates) {
+    need(typeof theme.fallbackTemplates === "object", "fallbackTemplates must be an object when provided");
+    for (const [key, value] of Object.entries(theme.fallbackTemplates)) {
+      need(value && typeof value === "object", `fallbackTemplates.${key} must be an object`);
+      need(typeof value.title === "string", `fallbackTemplates.${key}.title must be a string`);
+      need(typeof value.body === "string", `fallbackTemplates.${key}.body must be a string`);
+    }
   }
 }

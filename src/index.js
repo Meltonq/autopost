@@ -186,6 +186,39 @@ function enforceHardMaxLength(text, theme) {
   return trimmedBody ? `${trimmedBody}\n${ctaLine}` : ctaLine;
 }
 
+function toHashtag(value) {
+  const cleaned = String(value || "")
+    .toLowerCase()
+    .replace(/[^0-9\p{L}_]+/gu, "");
+  return cleaned ? `#${cleaned}` : null;
+}
+
+function buildFallbackHashtags({ theme, rubric }) {
+  const rubricTags = {
+    clarity: ["ясность", "приоритеты"],
+    practice: ["практика", "маленькийшаг"],
+    reflection: ["рефлексия", "пауза"],
+  };
+  const tags = new Set();
+  for (const tag of rubricTags[rubric] || []) {
+    const hash = toHashtag(tag);
+    if (hash) tags.add(hash);
+  }
+  const themeTag = toHashtag(theme?.name);
+  if (themeTag) tags.add(themeTag);
+  const baseTag = toHashtag("коучинг");
+  if (baseTag) tags.add(baseTag);
+  return Array.from(tags).slice(0, 4).join(" ");
+}
+
+function buildFallbackCaption({ theme, rubric, cta }) {
+  const cfg = theme.fallbackTemplates?.[rubric];
+  if (!cfg) return null;
+  const hashtags = buildFallbackHashtags({ theme, rubric });
+  const parts = [`<b>${cfg.title}</b>`, cfg.body, cta, hashtags].filter(Boolean);
+  return parts.join("\n");
+}
+
 async function generateCaption({ rubric, tone, cta }) {
   const brief = pickBrief(theme, rubric);
   const prompt = buildPrompt({ theme, rubric, tone, cta, brief });
@@ -284,18 +317,45 @@ async function post({ reason = "scheduled", rubricOverride, toneOverride, ctaOve
     const rubric = rubricOverride || pickFrom(theme.rubrics, last?.rubric);
     const tone = toneOverride || pickFrom(theme.tones, null);
     const cta = ctaOverride || pickFrom(theme.cta, last?.cta);
+    const fallbackCaption = buildFallbackCaption({ theme, rubric, cta });
 
     let text;
+    let usedFallback = false;
     try {
       text = await generateCaption({ rubric, tone, cta });
     } catch (err) {
       console.error("❌ Generation failed:", err?.message || err);
-      await sleep(800 + i * 400);
-      continue;
+      if (fallbackCaption) {
+        text = fallbackCaption;
+        usedFallback = true;
+      } else {
+        await sleep(800 + i * 400);
+        continue;
+      }
     }
 
-    const validation = validateCaption({ text, theme });
+    if (!text || !text.trim()) {
+      if (fallbackCaption && !usedFallback) {
+        text = fallbackCaption;
+        usedFallback = true;
+      } else {
+        console.warn("⚠️ Empty caption, retrying");
+        continue;
+      }
+    }
+
+    text = enforceHardMaxLength(String(text).trim(), theme);
+
+    let validation = validateCaption({ text, theme, cta, skipFullTemplate: usedFallback });
     recordValidationResult(validation);
+    if (!validation.ok && fallbackCaption && !usedFallback) {
+      console.warn(`⚠️ Validation failed (${validation.reasons.join(", ")}). Using fallback.`);
+      text = enforceHardMaxLength(String(fallbackCaption).trim(), theme);
+      usedFallback = true;
+      validation = validateCaption({ text, theme, cta, skipFullTemplate: true });
+      recordValidationResult(validation);
+    }
+
     if (!validation.ok) {
       console.warn(`⚠️ Validation failed (${validation.reasons.join(", ")}). Retry ${i + 1}/${maxTries}`);
       continue;

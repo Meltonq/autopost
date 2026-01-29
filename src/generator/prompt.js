@@ -12,6 +12,15 @@ export function buildPrompt({ theme, rubric, tone, cta, brief }) {
     "Avoid markdown headings unless explicitly requested.",
   ].join(" ");
 
+  if (theme.promptConfig?.mode === "fullTemplate") {
+    const template = String(theme.promptConfig.template || "");
+    const user = template
+      .replace(/\$\{rubric\}/g, String(rubric))
+      .replace(/\$\{tone\}/g, String(tone))
+      .replace(/\$\{cta\}/g, String(cta));
+    return { system, user };
+  }
+
   const user = [
     `Rubric: ${rubric}.`,
     `Short brief: ${brief}.`,
