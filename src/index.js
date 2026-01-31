@@ -54,8 +54,16 @@ const UNSPLASH_QUERY_DEFAULT = process.env.UNSPLASH_QUERY_DEFAULT || "minimal ca
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const IMAGES_DIR = path.resolve(process.env.IMAGES_DIR || "./images");
+const IMAGES_DIRS = (process.env.IMAGES_DIRS || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .map((value) => path.resolve(value));
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(IMAGES_DIR, { recursive: true });
+for (const dir of IMAGES_DIRS) {
+  fs.mkdirSync(dir, { recursive: true });
+}
 
 const TG_MAX_PHOTO_BYTES = Number(process.env.TG_MAX_PHOTO_BYTES || 1900000);
 const VALIDATION_REPORT_INTERVAL = Number(process.env.VALIDATION_REPORT_INTERVAL_MS || 24 * 60 * 60 * 1000);
@@ -256,7 +264,13 @@ async function pickImage({ rubric }) {
     console.warn("⚠️ IMAGE_MODE=unsplash but UNSPLASH_ACCESS_KEY missing, falling back to local images");
   }
 
-  const localPath = pickLocalImage({ rubric, imagesDir: IMAGES_DIR, usedStore: stores.imagesUsed, maxBytes: TG_MAX_PHOTO_BYTES });
+  const localPath = pickLocalImage({
+    rubric,
+    imagesDir: IMAGES_DIR,
+    imagesDirs: IMAGES_DIRS,
+    usedStore: stores.imagesUsed,
+    maxBytes: TG_MAX_PHOTO_BYTES,
+  });
   return { type: "local", path: localPath };
 }
 

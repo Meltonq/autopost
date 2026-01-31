@@ -129,6 +129,7 @@ node scripts/preview-full-template.js
 ## Изображения
 
 - Локальные: положите изображения в `images/<rubric>/` или прямо в `images/`.
+- Доп. каталоги: `IMAGES_DIRS=/abs/path1,/abs/path2` добавит дополнительные папки для поиска (каждая со своей структурой `rubric/`).
 - Unsplash: включите `USE_UNSPLASH=true` и задайте `UNSPLASH_ACCESS_KEY`.
 
 ## Команды
